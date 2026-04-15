@@ -92,14 +92,22 @@ func TestSetStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 	// update status, testing for error
-	err = store.SetStatus(id)
+	var nextStatus string
+	switch testParcel.Status {
+	case ParcelStatusRegistered:
+		nextStatus = ParcelStatusSent
+	case ParcelStatusSent:
+		nextStatus = ParcelStatusDelivered
+	default:
+		nextStatus = ParcelStatusDelivered
+	}
+	err = store.SetStatus(id, nextStatus)
 	require.NoError(t, err)
 	// tests updating of status test parcel
 	// get this parcel by id, testing for error and that new status of parcel no equal old status test parcel
 	parcel, err := store.Get(id)
 	require.NoError(t, err)
-	assert.NotEqual(t, ParcelStatusRegistered, parcel.Status)
-	assert.Equal(t, ParcelStatusSent, parcel.Status)
+	assert.Equal(t, nextStatus, parcel.Status)
 }
 
 // TestGetByClient tests on getting all client parcels by client id

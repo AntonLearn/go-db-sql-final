@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"log"
 	"time"
 
@@ -12,6 +13,15 @@ const (
 	ParcelStatusRegistered = "registered"
 	ParcelStatusSent       = "sent"
 	ParcelStatusDelivered  = "delivered"
+)
+
+var (
+	DeleteWhenNotRegistered    = "cannot be removed"
+	ErrDeleteWhenNotRegistered = errors.New(DeleteWhenNotRegistered)
+	ResetWhenNotRegistered     = "address cannot be changed"
+	ErrResetWhenNotRegistered  = errors.New(ResetWhenNotRegistered)
+	StatusWhenDelivered        = "already has status delivered"
+	ErrStatusWhenDelivered     = errors.New(StatusWhenDelivered)
 )
 
 type Parcel struct {
@@ -62,17 +72,32 @@ func (s ParcelService) PrintClientParcels(client int) error {
 }
 
 func (s ParcelService) NextStatus(number int) error {
-	err := s.store.SetStatus(number)
-	if err != nil {
-		return err
-	}
 	parcel, err := s.store.Get(number)
 	if err != nil {
 		return err
 	}
+	var nextStatus string
+	switch parcel.Status {
+	case ParcelStatusRegistered:
+		nextStatus = ParcelStatusSent
+	case ParcelStatusSent:
+		nextStatus = ParcelStatusDelivered
+	default:
+		nextStatus = ParcelStatusDelivered
+	}
+	err = s.store.SetStatus(number, nextStatus)
+	if errors.Is(err, ErrStatusWhenDelivered) {
+		log.Printf("Parcel № %d on address %s from client with id %d registered at %s: "+
+			StatusWhenDelivered+"\n", parcel.Number, parcel.Address, parcel.Client,
+			parcel.CreatedAt)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	log.Printf("Parcel № %d on address %s from client with id %d registered at %s: "+
-		"has new status: %s\n", parcel.Number, parcel.Address, parcel.Client,
-		parcel.CreatedAt, parcel.Status)
+		"has new status %s\n", parcel.Number, parcel.Address, parcel.Client,
+		parcel.CreatedAt, nextStatus)
 	return nil
 }
 
@@ -83,6 +108,12 @@ func (s ParcelService) ChangeAddress(number int, address string) error {
 	}
 	oldAddress := parcel.Address
 	err = s.store.SetAddress(number, address)
+	if errors.Is(err, ErrResetWhenNotRegistered) {
+		log.Printf("Parcel № %d on address %s from client with id %d registered at %s: "+
+			ResetWhenNotRegistered+"\n", parcel.Number, oldAddress, parcel.Client,
+			parcel.CreatedAt)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -102,6 +133,12 @@ func (s ParcelService) Delete(number int) error {
 		return err
 	}
 	err = s.store.Delete(number)
+	if errors.Is(err, ErrDeleteWhenNotRegistered) {
+		log.Printf("Parcel № %d on address %s from client with id %d registered at %s: "+
+			DeleteWhenNotRegistered+"\n", parcel.Number, parcel.Address, parcel.Client,
+			parcel.CreatedAt)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -115,7 +152,7 @@ func main() {
 	dbName := "tracker.db"
 	db, err := sql.Open("sqlite", dbName)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 		return
 	}
 	defer db.Close()
@@ -128,51 +165,51 @@ func main() {
 	address := "Псков, д. Пушкина, ул. Колотушкина, д. 5"
 	p, err := service.Register(client, address)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	number := p.Number
 	// change first parcel address
 	newAddress := "Саратов, д. Верхние Зори, ул. Козлова, д. 25"
 	err = service.ChangeAddress(number, newAddress)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	// setting next first parcel status
 	err = service.NextStatus(number)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	// print list of client parcels
 	err = service.PrintClientParcels(client)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	// removing first parcel
 	err = service.Delete(number)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	// print list of client parcels
 	// first parcel was not removed because its status was not registered
 	err = service.PrintClientParcels(client)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	// second parcel registration
 	p, err = service.Register(client, address)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	number = p.Number
 	// removing second parcel
 	err = service.Delete(number)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	// print list of client parcels
 	// second parcel was removed because its status was registered
 	err = service.PrintClientParcels(client)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 }
